@@ -6,7 +6,10 @@ import logging
 logger = logging.getLogger(__name__)
 
 class BaseModel(ABC):
-    """ Abstract base model for openai style LLM agent """
+    """
+    Abstract base model for OpenAI style LLM agent.
+    In essence, a simple wrapper around OpenAi client, responsible for building prompts and get completions.
+    """
     def __init__(self, client: OpenAI = None, model: str = None, frequency_penalty: int = 0, temperature: int = 1) -> None:
         self.client = client
         self.model = model,
@@ -19,6 +22,7 @@ class BaseModel(ABC):
         raise NotImplementedError
 
     def get_completion(self, prompt: dict|List[dict]) -> str:
+        completion = None
         try:
             response = self.client.chat.completions.create(
                 model = self.model,
@@ -28,7 +32,6 @@ class BaseModel(ABC):
             )
             completion = response.choices[0].message.content
         except OpenAIError as e:
-            completion = None
             logger.error(f"Error occurred when trying to get completion: {e}")
         return completion
 

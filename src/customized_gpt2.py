@@ -1,5 +1,5 @@
 from turtle import forward
-from typing import Optional, Tuple, Union
+from typing import Optional, Tuple, Union, List
 import torch
 import torch.utils.checkpoint
 from torch import nn
@@ -7,12 +7,6 @@ from transformers.modeling_outputs import BaseModelOutputWithPastAndCrossAttenti
 from transformers.models.gpt2.modeling_gpt2 import GPT2Attention, GPT2Block, GPT2Model, GPT2LMHeadModel
 
 class CustomizedGPT2Attention(GPT2Attention):
-    """
-    GPT2 flash attention module. This module inherits from `GPT2Attention` as the weights of the module stays
-    untouched. The only required change would be on the forward pass where it needs to correctly call the public API of
-    flash attention and deal with padding tokens in case the input contains any of them.
-    """
-
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -20,8 +14,9 @@ class CustomizedGPT2Attention(GPT2Attention):
         self,
         hidden_states: Optional[Tuple[torch.FloatTensor]],
         attention_mask: Optional[torch.FloatTensor] = None,
+        past_key_value: Optional[Tuple[torch.FloatTensor]] = None,
         **kwargs,
-    ):
+    ) -> Tuple[torch.FloatTensor, Optional[Tuple[torch.FloatTensor]]]:
 
         # Prepare query, key, value matrix
         query, key, value = self.c_attn(hidden_states).split(self.split_size, dim=2) # each of them has shape (batch_size, seq_len, dim)
@@ -29,6 +24,12 @@ class CustomizedGPT2Attention(GPT2Attention):
         key = self._split_heads(key, self.num_heads, self.head_dim) # [batch_size, num_heads, seq_len, head_dim]
         value = self._split_heads(value, self.num_heads, self.head_dim) # [batch_size, num_heads, seq_len, head_dim]
 
+        # Leverage KV-Cache
+        if past_key_value is not None:
+            past_key, past_value = past_key_value
+            key = torch.cat((past_key, key), dim=-2)
+            value = torch.cat((past_value, value), dim=-2)
+        
         # Self-attention mechanism
         attn_output, attn_weights = self._attn(query, key, value, attention_mask)
 
@@ -36,7 +37,7 @@ class CustomizedGPT2Attention(GPT2Attention):
         attn_output = self.c_proj(attn_output)
         attn_output = self.resid_dropout(attn_output)
 
-        return attn_output
+        return attn_output, (key, value)
 
 
 class CustomizedGPT2Block(GPT2Block):
@@ -48,15 +49,17 @@ class CustomizedGPT2Block(GPT2Block):
         self,
         hidden_states: Optional[Tuple[torch.FloatTensor]],
         attention_mask: Optional[torch.FloatTensor] = None,
+        past_key_value: Optional[Tuple[torch.FloatTensor]] = None,
         **kwargs,
     ):
         residual = hidden_states
 
         # self-attention (class `CustomizedGPT2AttentionWithFasterCache`)
         hidden_states = self.ln_1(hidden_states)
-        attn_output = self.attn(
+        attn_output, present_key_value = self.attn(
             hidden_states,
             attention_mask=attention_mask,
+            past_key_value=past_key_value
         )
 
         # residual connection
@@ -72,7 +75,7 @@ class CustomizedGPT2Block(GPT2Block):
         hidden_states = residual + feed_forward_hidden_states
 
 
-        return hidden_states
+        return hidden_states, present_key_value
 
 
 class CustomizedGPT2Model(GPT2Model):
@@ -89,17 +92,24 @@ class CustomizedGPT2Model(GPT2Model):
         self,
         input_ids: Optional[torch.LongTensor] = None,
         attention_mask: Optional[torch.FloatTensor] = None,
+        past_key_values: Optional[Tuple[Tuple[torch.FloatTensor]]] = None,
         **kwargs
-    ) -> Union[Tuple, BaseModelOutputWithPastAndCrossAttentions]:
+    ) -> Tuple[Union[Tuple, BaseModelOutputWithPastAndCrossAttentions], Optional[Tuple[Tuple[torch.FloatTensor]]]]:
 
         input_shape = input_ids.size()
         batch_size = input_ids.shape[0]
         device = input_ids.device
 
-        # Prepare input embeddings
+        if past_key_values is None:
+            past_length = 0
+            past_key_values = tuple([None] * len(self.h))
+        else:
+            past_length = past_key_values[0][0].size(-2)
+
         inputs_embeds = self.wte(input_ids)
         position_ids = attention_mask.long().cumsum(-1) - 1
         position_ids.masked_fill_(attention_mask == 0, 1)
+        position_ids = position_ids[:,past_length:]
         position_embeds = self.wpe(position_ids)
         hidden_states = inputs_embeds + position_embeds
 
@@ -113,21 +123,23 @@ class CustomizedGPT2Model(GPT2Model):
         hidden_states = self.drop(hidden_states)
         output_shape = (-1,) + input_shape[1:] + (hidden_states.size(-1),)
 
-
-        # Iterate over all GPT2 layer, i.e. `block`
+        # Initialize list for past_key_values
+        present_key_values = ()
+        # Iterate over all GPT2 layers
         for i, block in enumerate(self.h):
-            outputs = block(
+            past_key_value = past_key_values[i]
+            # Forward pass through the block
+            hidden_states, present_key_value = block(
                 hidden_states,
                 attention_mask=attention_mask,
+                past_key_value=past_key_value,
             )
-
-            hidden_states = outputs
-
+            present_key_values = present_key_values + (present_key_value,)
 
         hidden_states = self.ln_f(hidden_states)
         hidden_states = hidden_states.view(output_shape)
 
-        return hidden_states
+        return hidden_states, present_key_values
 
 
 class CustomizedGPT2LMHeadModel(GPT2LMHeadModel):
@@ -144,10 +156,12 @@ class CustomizedGPT2LMHeadModel(GPT2LMHeadModel):
         self,
         input_ids: Optional[torch.LongTensor] = None,
         attention_mask: Optional[torch.FloatTensor] = None,
+        past_key_values: Optional[Tuple[Tuple[torch.FloatTensor]]] = None,
     ):
-        hidden_states = self.transformer(
+        hidden_states, present_key_values = self.transformer(
             input_ids,
             attention_mask=attention_mask,
+            past_key_values=past_key_values
         )
 
         # Prepare logits from last hidden state
@@ -155,4 +169,5 @@ class CustomizedGPT2LMHeadModel(GPT2LMHeadModel):
 
         return {
             'logits': lm_logits,
+            'cached_key_values': present_key_values
         }

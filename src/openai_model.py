@@ -65,7 +65,7 @@ class RAGModel(BaseModel):
         messages = [
             {
                 "role": "user",
-                "content": f"Given the following data:\n{retrieved_information}\n{user_content}"
+                "content": f"Given the following data:\n\n{retrieved_information}\n\n{user_content}"
             }
         ]
         return messages

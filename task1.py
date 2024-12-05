@@ -24,7 +24,6 @@ def customized_greedy_decoding(batch):
         attention_mask = torch.cat([attention_mask, torch.ones_like(input_ids)], dim=-1)
 
         res = torch.cat([res, input_ids], dim=-1)
-        print(timestep)
 
     return res, time.time() - start_time
 

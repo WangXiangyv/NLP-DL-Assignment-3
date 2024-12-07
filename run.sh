@@ -1,1 +1,1 @@
-proxychains python task_1_1.py
+proxychains -q python task_1_1.py

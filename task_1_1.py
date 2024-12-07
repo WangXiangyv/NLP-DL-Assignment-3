@@ -1,38 +1,86 @@
 import torch
-import torch.quantization
-from torch.cuda import memory_allocated
-from transformers import AutoTokenizer, AutoModelForCausalLM, QuantoConfig, GPT2LMHeadModel
+from transformers import AutoTokenizer, AutoModelForCausalLM, QuantoConfig, GPT2LMHeadModel, LlamaForCausalLM, Conv1D
 from optimum.quanto import QuantizedModelForCausalLM, qint4
-import time
+from src.decoding import golden_greedy_decoding_without_cache, golden_greedy_decoding_with_cache
+from src.data_helper import load_prompt_dataset
+from src.evaluate import eval_throughput, eval_gpu_memory
+import argparse
 
-# @torch.no_grad()
-# def golden_greedy_decoding_wo_cache(batch):
-#     tokenized_batch = tokenizer(batch, return_tensors="pt", padding=True, truncation=True, max_length=128).to('cuda:1')
-#     res = tokenized_batch['input_ids']
-#     start_time = time.time()
-#     for timestep in range(MAX_NEW_LENGTH):
-#         tokenized_batch = original_model.prepare_inputs_for_generation(**tokenized_batch)
-#         outputs = original_model(**tokenized_batch)
-#         output_tokens = torch.argmax(outputs['logits'][:,-1], dim=-1, keepdim=True)
-#         tokenized_batch = {
-#             "input_ids": torch.cat([tokenized_batch['input_ids'], output_tokens], dim=-1),
-#             "attention_mask": torch.cat([tokenized_batch['attention_mask'], torch.ones_like(output_tokens)], dim=-1),
-#         }
-#         res = torch.cat([res, output_tokens], dim=-1)
-    
-#     return res, time.time() - start_time
+def get_args():
+    parser = argparse.ArgumentParser(
+        prog="Task-1.1",
+        description="Script for conducting task 1.1 experiments",
+    )
+    parser.add_argument(
+        "-l", "--desired_length",
+        default=64,
+        type=int
+    )
+    parser.add_argument(
+        "-b", "--bsz",
+        default=16,
+        type=int
+    )
+    parser.add_argument(
+        "-D", "--device",
+        default="cuda"
+    )
+    parser.add_argument(
+        "-t", "--task",
+        choices=["eval_throughput", "eval_memory"],
+        default="eval_throughput"
+    )
+    parser.add_argument(
+        "-u", "--use_cache",
+        action="store_true"
+    )
+    parser.add_argument(
+        "-q", "--quantization_method",
+        choices=["original", "int8", "int4", "int2"],
+        default="original"
+    )
+    parser.add_argument(
+        "-m", "--model_name_or_path",
+        default="facebook/opt-1.3b"
+    )
+    parser.add_argument(
+        "-d", "--dataset_path",
+        default="data/data.txt"
+    )
+    return parser.parse_args()
 
 if __name__ == "__main__":
-    MAX_NEW_LENGTH = 100
-    bsz = 16
-
-    tokenizer = AutoTokenizer.from_pretrained("openai-community/gpt2")
+    args = get_args()
+    tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path)
     tokenizer.padding_side = 'left'
-    tokenizer.pad_token = tokenizer.eos_token
-    original_model = AutoModelForCausalLM.from_pretrained("openai-community/gpt2", attn_implementation="eager", device_map='cuda:1')
-    quantized_model = QuantizedModelForCausalLM.quantize(original_model, weights=qint4, exclude="exclude='lm_head'")
-    # quantized_model.save_pretrained('./gpt2-int4-quantized')
-    # quantized_model = QuantizedModelForCausalLM.from_pretrained('./gpt2-int4-quantized', device_map='cuda:1')
-    # quantized_model.to("cuda:1")
-    print(quantized_model.transformer.h[0].attn.c_attn.weight)
-    # print(memory_allocated("cuda:1"))
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+    quantization_config = QuantoConfig(weights=args.quantization_method) if args.quantization_method != "original" else None
+    prompt_data = load_prompt_dataset(args.dataset_path)
+    if args.task == "eval_throughput":
+        model = AutoModelForCausalLM.from_pretrained(
+            args.model_name_or_path,
+            device_map=args.device,
+            quantization_config=quantization_config
+        )
+        throughput = eval_throughput(
+            model,
+            tokenizer,
+            args.device,
+            prompt_data,
+            args.desired_length,
+            args.bsz,
+            decoding=golden_greedy_decoding_with_cache if args.use_cache else golden_greedy_decoding_without_cache
+        )
+        print(throughput)
+    else:
+        eval_gpu_memory(
+            args.model_name_or_path,
+            tokenizer,
+            args.device,
+            prompt_data,
+            args.desired_length,
+            args.bsz,
+            decoding=golden_greedy_decoding_with_cache if args.use_cache else golden_greedy_decoding_without_cache,
+            quantization_config=quantization_config
+        )

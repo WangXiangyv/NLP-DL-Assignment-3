@@ -157,6 +157,7 @@ class CustomizedGPT2LMHeadModel(GPT2LMHeadModel):
         input_ids: Optional[torch.LongTensor] = None,
         attention_mask: Optional[torch.FloatTensor] = None,
         past_key_values: Optional[Tuple[Tuple[torch.FloatTensor]]] = None,
+        **kwargs
     ):
         hidden_states, present_key_values = self.transformer(
             input_ids,

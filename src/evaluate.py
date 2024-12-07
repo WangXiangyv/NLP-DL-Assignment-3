@@ -20,7 +20,7 @@ def eval_throughput(
     total_tokens = 0
     model_warming(model, tokenizer, device, dataset[0:bsz]) # Warm up the model to avoid the compile cost 
     # Do inference
-    for i in tqdm(range(0, (len(dataset) + bsz - 1) // bsz)):
+    for i in tqdm(range(0, (len(dataset) + bsz - 1) // bsz), leave=False):
         batch = dataset[i * bsz: (i + 1) * bsz]
         _, time_consumption = decoding(model, tokenizer, device, batch, desired_length)
         tot_time += time_consumption
@@ -43,7 +43,7 @@ def eval_gpu_memory(
     
     torch.cuda.reset_peak_memory_stats(device)
     model = AutoModelForCausalLM.from_pretrained(model_name_or_path, **kwargs)
-    for i in tqdm(range(0, (len(dataset) + bsz - 1) // bsz)):
+    for i in tqdm(range(0, (len(dataset) + bsz - 1) // bsz), leave=False):
         batch = dataset[i * bsz: (i + 1) * bsz]
         decoding(model, tokenizer, device, batch, desired_length)
     gpu_mem = torch.cuda.max_memory_allocated(device)

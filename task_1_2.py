@@ -1,73 +1,87 @@
 from transformers import AutoTokenizer, AutoModelForCausalLM
-import torch
 from src.customized_gpt2 import CustomizedGPT2LMHeadModel
-from src.decoding import golden_greedy_decoding_wo_cache, customized_greedy_decoding
+from src.decoding import golden_greedy_decoding_without_cache, customized_greedy_decoding, golden_greedy_decoding_with_cache
+from src.evaluate import eval_throughput, eval_gpu_memory
 from src.data_helper import load_prompt_dataset
-from tqdm import tqdm
+import argparse
 
-
-def eval_throughput():
-    times = [0, 0]
-    total_tokens = 0
-
-    # Load tokenizer and model
-    tokenizer = AutoTokenizer.from_pretrained("openai-community/gpt2")
-    tokenizer.padding_side = 'left'
-    tokenizer.pad_token = tokenizer.eos_token
-    original_model = AutoModelForCausalLM.from_pretrained("openai-community/gpt2", attn_implementation="eager", device_map=device)
-    custom_model = CustomizedGPT2LMHeadModel.from_pretrained("openai-community/gpt2", attn_implementation="eager", device_map=device)
-
-    # Load dataset
-    prompt_dataset = load_prompt_dataset("data/data.txt")
-
-    # Do inference
-    for i in tqdm(range(0, (len(prompt_dataset) + bsz - 1) // bsz)):
-        batch = prompt_dataset[i * bsz: (i + 1) * bsz]
-        golden_wo_cache_res, golden_wo_cache_time = golden_greedy_decoding_wo_cache(original_model, tokenizer, device, batch, MAX_NEW_LENGTH)
-        custom_res, custom_time = customized_greedy_decoding(custom_model, tokenizer, device, batch, MAX_NEW_LENGTH)
-        times[0] += golden_wo_cache_time
-        times[1] += custom_time
-        total_tokens += len(batch) * MAX_NEW_LENGTH
-        assert torch.equal(golden_wo_cache_res, custom_res), "Decoding results are not equal"
-    
-    print(f"Totol output tokens is: {total_tokens} tokens")
-    print(f"Time taken for golden greedy decoding without KV cache: {times[0]} - Throughput: {total_tokens/times[0]} tokens/s")
-    print(f"Time taken for customized greedy decoding: {times[1]} - Throughput: {total_tokens/times[1]} tokens/s")
-
-def eval_gpu_memeory():
-    # Load tokenizer and model
-    tokenizer = AutoTokenizer.from_pretrained("openai-community/gpt2")
-    tokenizer.padding_side = 'left'
-    tokenizer.pad_token = tokenizer.eos_token
-    # Load dataset
-    prompt_dataset = load_prompt_dataset("data/data.txt")
-    original_mem = customized_mem = None
-    # torch.cuda.init()
-    # torch.cuda.reset_peak_memory_stats(device) # Rest the record of GPU memory allocated peak
-
-    # original_model = AutoModelForCausalLM.from_pretrained("openai-community/gpt2", attn_implementation="eager", device_map=device)
-    # for i in range(0, (len(prompt_dataset) + bsz - 1) // bsz):
-    #     batch = prompt_dataset[i * bsz: (i + 1) * bsz]
-    #     golden_greedy_decoding_wo_cache(original_model, tokenizer, device, batch, MAX_NEW_LENGTH)
-    # original_mem = torch.cuda.max_memory_allocated(device)
-
-    # torch.cuda.synchronize(device)
-    # del original_model # Release the original model
-    # torch.cuda.reset_peak_memory_stats(device) # Rest the peak GPU memory allocated
-    
-    custom_model = CustomizedGPT2LMHeadModel.from_pretrained("openai-community/gpt2", attn_implementation="eager", device_map=device)
-    for i in range(0, (len(prompt_dataset) + bsz - 1) // bsz):
-        batch = prompt_dataset[i * bsz: (i + 1) * bsz]
-        customized_greedy_decoding(custom_model, tokenizer, device, batch, MAX_NEW_LENGTH)
-    customized_mem = torch.cuda.max_memory_allocated(device) # Note that it would be better to test the two models separately to mitigate bias
-    
-    
-    print(f"Max memeory allocated for golden greedy decoding without KV cache: {original_mem}")
-    print(f"Max memeory allocated for customized greedy decoding: {customized_mem}")
+def get_args():
+    parser = argparse.ArgumentParser(
+        prog="Task-1.2",
+        description="Script for conducting task 1.1 experiments",
+    )
+    parser.add_argument(
+        "-l", "--desired_length",
+        default=64,
+        type=int
+    )
+    parser.add_argument(
+        "-b", "--bsz",
+        default=16,
+        type=int
+    )
+    parser.add_argument(
+        "-D", "--device",
+        default="cuda"
+    )
+    parser.add_argument(
+        "-t", "--task",
+        choices=["eval_throughput", "eval_gpu_memory"],
+        default="eval_throughput"
+    )
+    parser.add_argument(
+        "-c", "--cache_strategy",
+        choices=["no_kv_cache", "golden_kv_cache", "simple_kv_cache"]
+    )
+    parser.add_argument(
+        "-d", "--dataset_path",
+        default="data/data.txt"
+    )
+    return parser.parse_args()
 
 if __name__ == "__main__":
-    MAX_NEW_LENGTH = 100
-    bsz = 16
-    device = "cuda:1"
-    # eval_throughput()
-    eval_gpu_memeory()
+    args = get_args()
+    tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path)
+    tokenizer.padding_side = 'left'
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+    prompt_data = load_prompt_dataset(args.dataset_path)
+    if args.cache_strategy == "simple_kv_cache":
+        model = AutoModelForCausalLM.from_pretrained(
+            args.model_name_or_path,
+            device_map=args.device,
+        )
+    else:
+        model = CustomizedGPT2LMHeadModel.from_pretrained(
+            args.model_name_or_path,
+            device_map=args.device,
+        )
+    match args.cache_method:
+        case "no_kv_cache":
+            decoding_method = golden_greedy_decoding_without_cache
+        case "golden_kv_cache":
+            decoding_method = golden_greedy_decoding_with_cache
+        case "simple_kv_cache":
+            decoding_methed = customized_greedy_decoding
+
+    if args.task == "eval_throughput":
+        throughput = eval_throughput(
+            model,
+            tokenizer,
+            args.device,
+            prompt_data,
+            args.desired_length,
+            args.bsz,
+            decoding=decoding_methed
+        )
+        print(throughput)
+    else:
+        eval_gpu_memory(
+            args.model_name_or_path,
+            tokenizer,
+            args.device,
+            prompt_data,
+            args.desired_length,
+            args.bsz,
+            decoding=decoding_methed
+        )

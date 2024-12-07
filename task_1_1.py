@@ -27,7 +27,7 @@ def get_args():
     )
     parser.add_argument(
         "-t", "--task",
-        choices=["eval_throughput", "eval_memory"],
+        choices=["eval_throughput", "eval_gpu_memory"],
         default="eval_throughput"
     )
     parser.add_argument(

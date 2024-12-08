@@ -20,7 +20,7 @@ def eval_throughput(
     total_tokens = 0
     model_warming(model, tokenizer, device, dataset[0:bsz]) # Warm up the model to avoid the compile cost 
     # Do inference
-    for i in tqdm(range(0, (len(dataset) + bsz - 1) // bsz), leave=False):
+    for i in range(0, (len(dataset) + bsz - 1) // bsz):
         batch = dataset[i * bsz: (i + 1) * bsz]
         _, time_consumption = decoding(model, tokenizer, device, batch, desired_length)
         tot_time += time_consumption
@@ -29,6 +29,7 @@ def eval_throughput(
     return total_tokens/tot_time
 
 def eval_gpu_memory(
+    cls,
     model_name_or_path,
     tokenizer,
     device,
@@ -40,15 +41,15 @@ def eval_gpu_memory(
 ):
     """ Note that this function should be called when no memory has been allocated on the given device """
     assert torch.cuda.memory_allocated(device) == 0, "'eval_gpu_memory' should be called when no memory has been allocated on the given device"
-    
+    torch.cuda.init()
     torch.cuda.reset_peak_memory_stats(device)
-    model = AutoModelForCausalLM.from_pretrained(model_name_or_path, **kwargs)
-    for i in tqdm(range(0, (len(dataset) + bsz - 1) // bsz), leave=False):
+    model = cls.from_pretrained(model_name_or_path, device_map=device, **kwargs)
+    for i in range(0, (len(dataset) + bsz - 1) // bsz):
         batch = dataset[i * bsz: (i + 1) * bsz]
         decoding(model, tokenizer, device, batch, desired_length)
     gpu_mem = torch.cuda.max_memory_allocated(device)
     return gpu_mem
 
 
-def eval_gsm8k(model):
-    raise NotImplementedError
+def eval_gsm8k(predictions, references):
+    pass

@@ -54,12 +54,13 @@ def golden_greedy_decoding_with_cache(model, tokenizer, device, batch_data, desi
     tokenized_batch = tokenizer(batch_data, return_tensors="pt", padding=True, truncation=True, max_length=128).to(device)
     
     start_time = time.time()
-    
+
     res = model.generate(
         **tokenized_batch,
         max_new_tokens=desired_length,
         min_new_tokens=desired_length,
-        use_cache=True
+        use_cache=True,
+        eos_token_id=None
     )
     
     time_consumption = time.time() - start_time

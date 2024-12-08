@@ -72,9 +72,10 @@ if __name__ == "__main__":
             args.bsz,
             decoding=golden_greedy_decoding_with_cache if args.use_cache else golden_greedy_decoding_without_cache
         )
-        print(throughput)
+        print(f"Throughput: {throughput} tokens/s")
     else:
-        eval_gpu_memory(
+        mem = eval_gpu_memory(
+            AutoModelForCausalLM,
             args.model_name_or_path,
             tokenizer,
             args.device,
@@ -84,3 +85,4 @@ if __name__ == "__main__":
             decoding=golden_greedy_decoding_with_cache if args.use_cache else golden_greedy_decoding_without_cache,
             quantization_config=quantization_config
         )
+        print(f"GPU Memory peak: {mem} bytes")

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-for task in eval_throughput eval_gpu_memory
+for task in eval_gpu_memory eval_throughput
 do
     for quantization in original int8 int4 int2
     do

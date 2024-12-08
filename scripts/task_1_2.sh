@@ -1,6 +1,6 @@
 #!/bin/bash
 
-for task in eval_throughput eval_gpu_memory
+for task in eval_gpu_memory eval_throughput
 do
     for cache in no_kv_cache golden_kv_cache simple_kv_cache
     do

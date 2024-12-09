@@ -52,4 +52,9 @@ def eval_gpu_memory(
 
 
 def eval_gsm8k(predictions, references):
-    pass
+    acc = 0
+    for p, r in zip(predictions, references):
+        if p == r:
+            acc += 1
+    acc = 100.0 * acc / len(references)
+    return acc

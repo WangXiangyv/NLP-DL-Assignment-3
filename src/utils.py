@@ -18,9 +18,26 @@ def str2bool(s:str):
         return None
     
 def str2int(s:str):
-    pattern = r"\d"
-    number = re.match(pattern, s)
-    number = int(number) if number is not None else None
+    pattern = re.compile(r"""
+        [+-]?
+        (?:
+            (?:\d{1,3}(?:,\d{3})+)
+            |
+            \d+
+        )
+        (?:\.\d+)?
+        (?:[eE][+-]?\d+)?
+    """, re.VERBOSE)
+    matches = re.findall(pattern, s)
+    if len(matches) == 0:
+        return None
+    number_str = "".join(matches[-1])
+    number_str = re.sub(r",", "", number_str)
+    try:
+        number = int(number_str)
+    except ValueError:
+        number = float(number_str)
+    
     return number
 
 def save_results(path, res):
@@ -32,4 +49,4 @@ def build_examples(prompt_ds):
     return examples
 
 if __name__ == "__main__":
-    print(int('4545'))
+    print(str2int("euriwery 7,765,000"))

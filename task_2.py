@@ -119,7 +119,7 @@ def run_ICL(args):
     )
     model = OpenAIModel(client, model=args.model)
     for datum in tqdm(test_ds):
-        results.append(model.get_completion(OpenAIModel.build_ICL_prompt(datum["question"]), examples))
+        results.append(model.get_completion(OpenAIModel.build_ICL_prompt(datum["question"], examples)))
     utils.save_results(args.output_path, results)
     predictions = [utils.extract_answer(res, transform=utils.str2int) for res in results]
     references = [utils.extract_answer(datum["answer"], transform=utils.str2int) for datum in test_ds]

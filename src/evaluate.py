@@ -1,10 +1,9 @@
-import json
 import torch
-import torch.nn as nn
 from src.decoding import golden_greedy_decoding_without_cache, model_warming
 from typing import Callable
-from tqdm import tqdm
-from transformers import AutoTokenizer, AutoModelForCausalLM
+import src.utils as utils
+import jsonlines
+from src.data_helper import load_gsm8k_dataset
 # from transformers import PreTrainedModel
 
 def eval_throughput(
@@ -54,7 +53,7 @@ def eval_gpu_memory(
 def eval_gsm8k(predictions, references):
     acc = 0
     for p, r in zip(predictions, references):
-        if p == r:
+        if p is not None and p == r:
             acc += 1
     acc = 100.0 * acc / len(references)
     return acc

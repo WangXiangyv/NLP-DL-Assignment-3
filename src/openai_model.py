@@ -122,7 +122,7 @@ class ReflexionModel:
             f"# Records #\n{records}\n\n"
             f"# Problem to solve #\n{query}\n\n"
             "You must surround all the math calculation expressions in your response with << on the left and >> on the right. "
-            "Math calculation expressions surrounded by << and >> must be in plain text without format."
+            "Math calculation expressions surrounded by << and >> must be in plain text without latex format."
             "You must output your final answer at the end with prefix ####.\n"
             "Let's think step by step."
         )

@@ -60,13 +60,13 @@ if __name__ == "__main__":
                 "openai-community/gpt2",
                 attn_implementation="eager",
                 device_map=args.device,
-            )
+            ).eval()
         else:
             model = AutoModelForCausalLM.from_pretrained(
                 "openai-community/gpt2",
                 attn_implementation="eager",
                 device_map=args.device,
-            )
+            ).eval()
         throughput = eval_throughput(
             model,
             tokenizer,

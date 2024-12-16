@@ -62,7 +62,7 @@ if __name__ == "__main__":
             args.model_name_or_path,
             device_map=args.device,
             quantization_config=quantization_config
-        )
+        ).eval()
         throughput = eval_throughput(
             model,
             tokenizer,

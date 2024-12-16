@@ -42,11 +42,13 @@ def eval_gpu_memory(
     assert torch.cuda.memory_allocated(device) == 0, "'eval_gpu_memory' should be called when no memory has been allocated on the given device"
     torch.cuda.init()
     torch.cuda.reset_peak_memory_stats(device)
-    model = cls.from_pretrained(model_name_or_path, device_map=device, **kwargs)
+    model = cls.from_pretrained(model_name_or_path, device_map=device, **kwargs).eval()
+    gpu_mem = 0
     for i in range(0, (len(dataset) + bsz - 1) // bsz):
         batch = dataset[i * bsz: (i + 1) * bsz]
         decoding(model, tokenizer, device, batch, desired_length)
-    gpu_mem = torch.cuda.max_memory_allocated(device)
+        gpu_mem = max(gpu_mem, torch.cuda.max_memory_allocated(device))
+        torch.cuda.empty_cache()
     return gpu_mem
 
 

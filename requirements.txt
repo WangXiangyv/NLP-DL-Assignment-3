@@ -3,5 +3,4 @@ transformers
 datasets
 openai
 accelerate
-docopt
 jsonlines
